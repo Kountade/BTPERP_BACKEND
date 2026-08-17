@@ -26,7 +26,14 @@ SECRET_KEY = 'django-insecure-b&%!py$z_mrfb8loh=9ki08k8+$$@^0uc#@zi(9rmkx4lweeyl
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+
+ALLOWED_HOSTS = ["btperp-backend.onrender.com",
+                 "localhost", "127.0.0.1"]
+CSRF_TRUSTED_ORIGINS = ['https://btperp-backend.onrender.com',
+                        'https://btperp-backend.onrender.com',]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
 
 
 # Application definition
@@ -60,7 +67,7 @@ MIDDLEWARE = [
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
-    "https://erp-multiagences.onrender.com",
+    "https://btperp-backend.onrender.com",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
