@@ -72,7 +72,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             'role_global': {'required': False, 'default': 'autre'},
             'agence_id': {'required': False, 'allow_null': True},
             'role_agence': {'required': False, 'allow_null': True},
+            'employee_id': {'required': False, 'allow_null': True},  # ✅ AJOUTÉ
         }
+
+    # ✅ VALIDATION SPÉCIFIQUE POUR employee_id
+    def validate_employee_id(self, value):
+        """Vérifie que le matricule n'est pas déjà utilisé"""
+        if value:
+            # Vérifier si le matricule existe déjà
+            if User.objects.filter(employee_id=value).exists():
+                raise serializers.ValidationError(
+                    "Ce matricule est déjà utilisé par un autre utilisateur"
+                )
+        return value
 
     def validate(self, data):
         role_global = data.get('role_global', 'autre')
@@ -114,6 +126,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         if 'role_global' not in validated_data:
             validated_data['role_global'] = 'autre'
+
+        # ✅ GÉRER LE MATRICULE : si vide ou chaîne vide, mettre à None
+        if 'employee_id' in validated_data:
+            if validated_data['employee_id'] == '' or validated_data['employee_id'] is None:
+                validated_data['employee_id'] = None
 
         user = User.objects.create_user(**validated_data)
 
