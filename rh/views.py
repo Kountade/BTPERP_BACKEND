@@ -1,0 +1,741 @@
+# rh/views.py
+"""
+Vues pour l'application RH
+API REST pour la gestion des ressources humaines
+"""
+
+from rest_framework import viewsets, permissions, status, filters
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from django.db.models import Count, Sum, Q
+from django.db.models.functions import TruncMonth
+from datetime import date, timedelta
+from django.contrib.auth import get_user_model
+
+from .models import (
+    Service, Poste, Employe, Competence, EmployeCompetence,
+    Formation, Pointage, HeureTravail, Absence, NoteDeFrais,
+    PlanningEmploye, DPAE
+)
+from .serializers import *
+
+User = get_user_model()
+
+
+# ============================================================
+# SERVICE VIEWSET
+# ============================================================
+
+class ServiceViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les services/départements"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Service.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ServiceCreateSerializer
+        return ServiceSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par parent
+        parent_id = self.request.query_params.get('parent')
+        if parent_id:
+            queryset = queryset.filter(parent_id=parent_id)
+        elif parent_id == 'null':
+            queryset = queryset.filter(parent__isnull=True)
+        
+        # Recherche
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(nom__icontains=search) | Q(code__icontains=search)
+            )
+        
+        return queryset
+    
+    @action(detail=True, methods=['get'])
+    def employes(self, request, pk=None):
+        """Récupère les employés du service"""
+        service = self.get_object()
+        employes = Employe.objects.filter(service=service, actif=True)
+        serializer = EmployeSerializer(employes, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def stats(self, request, pk=None):
+        """Statistiques du service"""
+        service = self.get_object()
+        employes = Employe.objects.filter(service=service, actif=True)
+        
+        stats = {
+            'total_employes': employes.count(),
+            'par_poste': employes.values('poste__nom').annotate(
+                count=Count('id')
+            ),
+            'par_contrat': employes.values('situation').annotate(
+                count=Count('id')
+            ),
+            'femmes': employes.filter(sexe='F').count(),
+            'hommes': employes.filter(sexe='M').count(),
+        }
+        return Response(stats)
+
+
+# ============================================================
+# POSTE VIEWSET
+# ============================================================
+
+class PosteViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les postes/métiers"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Poste.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return PosteCreateSerializer
+        return PosteSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par catégorie
+        categorie = self.request.query_params.get('categorie')
+        if categorie:
+            queryset = queryset.filter(categorie=categorie)
+        
+        # Recherche
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(nom__icontains=search) | Q(code__icontains=search)
+            )
+        
+        return queryset
+    
+    @action(detail=True, methods=['get'])
+    def employes(self, request, pk=None):
+        """Récupère les employés occupant ce poste"""
+        poste = self.get_object()
+        employes = Employe.objects.filter(poste=poste, actif=True)
+        serializer = EmployeSerializer(employes, many=True)
+        return Response(serializer.data)
+
+
+# ============================================================
+# COMPETENCE VIEWSET
+# ============================================================
+
+class CompetenceViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les compétences"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Competence.objects.all()
+    serializer_class = CompetenceSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['nom', 'description', 'categorie']
+
+
+# ============================================================
+# EMPLOYE VIEWSET
+# ============================================================
+
+class EmployeViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les employés"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Employe.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return EmployeCreateSerializer
+        elif self.action == 'list':
+            return EmployeSerializer
+        return EmployeDetailSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par service
+        service_id = self.request.query_params.get('service')
+        if service_id:
+            queryset = queryset.filter(service_id=service_id)
+        
+        # Filtrer par poste
+        poste_id = self.request.query_params.get('poste')
+        if poste_id:
+            queryset = queryset.filter(poste_id=poste_id)
+        
+        # Filtrer par agence
+        agence_id = self.request.query_params.get('agence')
+        if agence_id:
+            queryset = queryset.filter(agence_id=agence_id)
+        
+        # Filtrer par statut
+        actif = self.request.query_params.get('actif')
+        if actif is not None:
+            queryset = queryset.filter(actif=actif.lower() == 'true')
+        
+        # Filtrer par disponibilité
+        disponible = self.request.query_params.get('disponible')
+        if disponible is not None:
+            queryset = queryset.filter(disponible=disponible.lower() == 'true')
+        
+        # Recherche
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(nom__icontains=search) | 
+                Q(prenom__icontains=search) | 
+                Q(matricule__icontains=search) |
+                Q(email__icontains=search)
+            )
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Statistiques RH globales"""
+        employes = Employe.objects.all()
+        
+        stats = {
+            'total_employes': employes.count(),
+            'actifs': employes.filter(actif=True).count(),
+            'inactifs': employes.filter(actif=False).count(),
+            'par_contrat': employes.values('situation').annotate(
+                count=Count('id')
+            ),
+            'par_service': employes.filter(actif=True).values('service__nom').annotate(
+                count=Count('id')
+            ),
+            'par_poste': employes.filter(actif=True).values('poste__nom').annotate(
+                count=Count('id')
+            ),
+            'par_agence': employes.filter(actif=True).values('agence__nom').annotate(
+                count=Count('id')
+            ),
+            'sexe': {
+                'hommes': employes.filter(sexe='M').count(),
+                'femmes': employes.filter(sexe='F').count(),
+            },
+            'age_moyen': employes.filter(actif=True).aggregate(
+                age_moyen=Sum('date_naissance')  # Calcul approximatif
+            ),
+        }
+        return Response(stats)
+    
+    @action(detail=True, methods=['get'])
+    def competences(self, request, pk=None):
+        """Récupère les compétences d'un employé"""
+        employe = self.get_object()
+        competences = EmployeCompetence.objects.filter(employe=employe)
+        serializer = EmployeCompetenceSerializer(competences, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def add_competence(self, request, pk=None):
+        """Ajoute une compétence à un employé"""
+        employe = self.get_object()
+        serializer = EmployeCompetenceSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(employe=employe)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def remove_competence(self, request, pk=None):
+        """Supprime une compétence d'un employé"""
+        employe = self.get_object()
+        competence_id = request.data.get('competence_id')
+        if not competence_id:
+            return Response({"error": "competence_id requis"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            competence = EmployeCompetence.objects.get(
+                employe=employe, 
+                competence_id=competence_id
+            )
+            competence.delete()
+            return Response({"message": "Compétence supprimée avec succès"})
+        except EmployeCompetence.DoesNotExist:
+            return Response({"error": "Compétence non trouvée"}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=True, methods=['get'])
+    def formations(self, request, pk=None):
+        """Récupère les formations d'un employé"""
+        employe = self.get_object()
+        formations = employe.formations.all()
+        serializer = FormationSerializer(formations, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def add_formation(self, request, pk=None):
+        """Ajoute une formation à un employé"""
+        employe = self.get_object()
+        serializer = FormationSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(employe=employe)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['get'])
+    def pointages(self, request, pk=None):
+        """Récupère les pointages d'un employé"""
+        employe = self.get_object()
+        pointages = employe.pointages.all()
+        
+        # Filtrer par date
+        date_debut = request.query_params.get('date_debut')
+        date_fin = request.query_params.get('date_fin')
+        if date_debut:
+            pointages = pointages.filter(date__gte=date_debut)
+        if date_fin:
+            pointages = pointages.filter(date__lte=date_fin)
+        
+        pointages = pointages.order_by('-date', '-heure')
+        serializer = PointageSerializer(pointages, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def absences(self, request, pk=None):
+        """Récupère les absences d'un employé"""
+        employe = self.get_object()
+        absences = employe.absences.all()
+        
+        # Filtrer par statut
+        statut = request.query_params.get('statut')
+        if statut:
+            absences = absences.filter(statut=statut)
+        
+        absences = absences.order_by('-date_debut')
+        serializer = AbsenceSerializer(absences, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def planning(self, request, pk=None):
+        """Récupère le planning d'un employé"""
+        employe = self.get_object()
+        planning = employe.plannings.all()
+        
+        # Filtrer par date
+        date_debut = request.query_params.get('date_debut')
+        date_fin = request.query_params.get('date_fin')
+        if date_debut:
+            planning = planning.filter(date__gte=date_debut)
+        if date_fin:
+            planning = planning.filter(date__lte=date_fin)
+        
+        planning = planning.order_by('date', 'heure_debut')
+        serializer = PlanningEmployeSerializer(planning, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def heures_travail(self, request, pk=None):
+        """Récupère les heures travaillées d'un employé"""
+        employe = self.get_object()
+        heures = employe.heures_travail.all()
+        
+        # Filtrer par date
+        date_debut = request.query_params.get('date_debut')
+        date_fin = request.query_params.get('date_fin')
+        if date_debut:
+            heures = heures.filter(date__gte=date_debut)
+        if date_fin:
+            heures = heures.filter(date__lte=date_fin)
+        
+        heures = heures.order_by('-date')
+        serializer = HeureTravailSerializer(heures, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def notes_frais(self, request, pk=None):
+        """Récupère les notes de frais d'un employé"""
+        employe = self.get_object()
+        notes = employe.notes_frais.all()
+        
+        # Filtrer par statut
+        statut = request.query_params.get('statut')
+        if statut:
+            notes = notes.filter(statut=statut)
+        
+        notes = notes.order_by('-date_soumission')
+        serializer = NoteDeFraisSerializer(notes, many=True)
+        return Response(serializer.data)
+
+
+# ============================================================
+# POINTAGE VIEWSET
+# ============================================================
+
+class PointageViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les pointages"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Pointage.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return PointageCreateSerializer
+        return PointageSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        # Filtrer par date
+        date_debut = self.request.query_params.get('date_debut')
+        date_fin = self.request.query_params.get('date_fin')
+        if date_debut:
+            queryset = queryset.filter(date__gte=date_debut)
+        if date_fin:
+            queryset = queryset.filter(date__lte=date_fin)
+        
+        # Filtrer par projet
+        projet_id = self.request.query_params.get('projet')
+        if projet_id:
+            queryset = queryset.filter(projet_id=projet_id)
+        
+        return queryset.order_by('-date', '-heure')
+    
+    @action(detail=False, methods=['post'])
+    def pointer_arrivee(self, request):
+        """Pointage d'arrivée"""
+        serializer = PointageCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(type_pointage='arrivee')
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['post'])
+    def pointer_depart(self, request):
+        """Pointage de départ"""
+        serializer = PointageCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(type_pointage='depart')
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['post'])
+    def pointer_pause(self, request):
+        """Pointage de pause"""
+        serializer = PointageCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(type_pointage='pause')
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['post'])
+    def retour_pause(self, request):
+        """Retour de pause"""
+        serializer = PointageCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(type_pointage='retour_pause')
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ============================================================
+# HEURE TRAVAIL VIEWSET
+# ============================================================
+
+class HeureTravailViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les heures travaillées"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = HeureTravail.objects.all()
+    serializer_class = HeureTravailSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        # Filtrer par date
+        date_debut = self.request.query_params.get('date_debut')
+        date_fin = self.request.query_params.get('date_fin')
+        if date_debut:
+            queryset = queryset.filter(date__gte=date_debut)
+        if date_fin:
+            queryset = queryset.filter(date__lte=date_fin)
+        
+        return queryset.order_by('-date')
+    
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """Création en masse des heures travaillées"""
+        serializer = HeureTravailBulkCreateSerializer(data=request.data, many=True)
+        if serializer.is_valid():
+            created = []
+            for data in serializer.validated_data:
+                heure, _ = HeureTravail.objects.update_or_create(
+                    employe_id=data['employe_id'],
+                    date=data['date'],
+                    defaults={
+                        'heures_normales': data.get('heures_normales', 0),
+                        'heures_supplementaires': data.get('heures_supplementaires', 0),
+                        'heures_nuit': data.get('heures_nuit', 0),
+                        'heures_weekend': data.get('heures_weekend', 0),
+                        'projet_id': data.get('projet_id'),
+                        'tache_id': data.get('tache_id'),
+                    }
+                )
+                created.append(heure)
+            return Response(HeureTravailSerializer(created, many=True).data, 
+                          status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def valider(self, request, pk=None):
+        """Valider les heures travaillées"""
+        heure = self.get_object()
+        heure.valide = True
+        heure.valide_par = request.user
+        heure.save()
+        return Response(HeureTravailSerializer(heure).data)
+
+
+# ============================================================
+# ABSENCE VIEWSET
+# ============================================================
+
+class AbsenceViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les absences"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Absence.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return AbsenceCreateSerializer
+        return AbsenceSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        # Filtrer par statut
+        statut = self.request.query_params.get('statut')
+        if statut:
+            queryset = queryset.filter(statut=statut)
+        
+        # Filtrer par type
+        type_absence = self.request.query_params.get('type')
+        if type_absence:
+            queryset = queryset.filter(type_absence=type_absence)
+        
+        return queryset.order_by('-date_debut')
+    
+    @action(detail=True, methods=['post'])
+    def approuver(self, request, pk=None):
+        """Approuve ou refuse une absence"""
+        absence = self.get_object()
+        serializer = AbsenceApproveSerializer(data=request.data)
+        if serializer.is_valid():
+            if serializer.validated_data['approuve']:
+                absence.statut = 'approuvee'
+            else:
+                absence.statut = 'refusee'
+            absence.approuve_par = request.user
+            absence.save()
+            return Response(AbsenceSerializer(absence).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, pk=None):
+        """Annule une absence"""
+        absence = self.get_object()
+        if absence.statut in ['approuvee', 'refusee']:
+            return Response(
+                {"error": "Cette absence ne peut pas être annulée"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        absence.statut = 'annulee'
+        absence.save()
+        return Response(AbsenceSerializer(absence).data)
+
+
+# ============================================================
+# NOTE DE FRAIS VIEWSET
+# ============================================================
+
+class NoteDeFraisViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les notes de frais"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = NoteDeFrais.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return NoteDeFraisCreateSerializer
+        return NoteDeFraisSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        # Filtrer par statut
+        statut = self.request.query_params.get('statut')
+        if statut:
+            queryset = queryset.filter(statut=statut)
+        
+        return queryset.order_by('-date_soumission')
+    
+    @action(detail=True, methods=['post'])
+    def approuver(self, request, pk=None):
+        """Approuve ou refuse une note de frais"""
+        note = self.get_object()
+        serializer = NoteDeFraisApproveSerializer(data=request.data)
+        if serializer.is_valid():
+            if serializer.validated_data['approuve']:
+                note.statut = 'approuvee'
+                note.date_approbation = date.today()
+            else:
+                note.statut = 'refusee'
+            note.approuve_par = request.user
+            note.commentaire = serializer.validated_data.get('commentaire', '')
+            note.save()
+            return Response(NoteDeFraisSerializer(note).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def soumettre(self, request, pk=None):
+        """Soumet une note de frais pour approbation"""
+        note = self.get_object()
+        if note.statut != 'brouillon':
+            return Response(
+                {"error": "Cette note ne peut pas être soumise"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        note.statut = 'soumise'
+        note.date_soumission = date.today()
+        note.save()
+        return Response(NoteDeFraisSerializer(note).data)
+
+
+# ============================================================
+# DPAE VIEWSET
+# ============================================================
+
+class DPAEViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les DPAE"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = DPAE.objects.all()
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return DPAECreateSerializer
+        return DPAESerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        return queryset.order_by('-date_envoi')
+    
+    @action(detail=True, methods=['post'])
+    def transmettre(self, request, pk=None):
+        """Marque la DPAE comme transmise"""
+        dpae = self.get_object()
+        dpae.transmis = True
+        dpae.save()
+        return Response(DPAESerializer(dpae).data)
+    
+    @action(detail=True, methods=['post'])
+    def generer_numero(self, request, pk=None):
+        """Génère un numéro de DPAE"""
+        last_dpae = DPAE.objects.all().order_by('-id').first()
+        if last_dpae and last_dpae.numero:
+            try:
+                num = int(last_dpae.numero) + 1
+                new_num = str(num).zfill(6)
+            except ValueError:
+                new_num = '000001'
+        else:
+            new_num = '000001'
+        return Response({"numero": new_num})
+
+
+# ============================================================
+# PLANNING EMPLOYE VIEWSET
+# ============================================================
+
+class PlanningEmployeViewSet(viewsets.ModelViewSet):
+    """ViewSet pour le planning des employés"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = PlanningEmploye.objects.all()
+    serializer_class = PlanningEmployeSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        # Filtrer par date
+        date_debut = self.request.query_params.get('date_debut')
+        date_fin = self.request.query_params.get('date_fin')
+        if date_debut:
+            queryset = queryset.filter(date__gte=date_debut)
+        if date_fin:
+            queryset = queryset.filter(date__lte=date_fin)
+        
+        return queryset.order_by('date', 'heure_debut')
+    
+    @action(detail=False, methods=['get'])
+    def planning_equipe(self, request):
+        """Récupère le planning d'une équipe"""
+        service_id = request.query_params.get('service')
+        date_debut = request.query_params.get('date_debut')
+        date_fin = request.query_params.get('date_fin')
+        
+        if not service_id:
+            return Response({"error": "service_id requis"}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        queryset = self.get_queryset()
+        queryset = queryset.filter(
+            employe__service_id=service_id,
+            employe__actif=True
+        )
+        
+        if date_debut:
+            queryset = queryset.filter(date__gte=date_debut)
+        if date_fin:
+            queryset = queryset.filter(date__lte=date_fin)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def valider(self, request, pk=None):
+        """Valide une entrée de planning"""
+        planning = self.get_object()
+        planning.valide = True
+        planning.save()
+        return Response(PlanningEmployeSerializer(planning).data)

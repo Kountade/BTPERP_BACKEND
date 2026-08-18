@@ -52,6 +52,9 @@ INSTALLED_APPS = [
     "django_rest_passwordreset",
     "django_filters",
     "users",
+    "chantiers",
+    "rh",
+    "crm",
 ]
 
 MIDDLEWARE = [
