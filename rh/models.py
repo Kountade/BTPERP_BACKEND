@@ -1,7 +1,5 @@
-from django.db import models
+# rh/models.py - Version avec 10 champs pour Employé et 10 champs pour Contrat
 
-# Create your models here.
-# rh/models.py
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -47,13 +45,42 @@ class Poste(models.Model):
         return f"{self.code} - {self.nom}"
 
 
+# ✅ TABLE EMPLOYE - 10 CHAMPS EXACTEMENT
 class Employe(models.Model):
-    """Employé de l'entreprise"""
+    """Employé de l'entreprise - 10 champs"""
     
     SEXE_CHOICES = [
         ('M', 'Masculin'),
         ('F', 'Féminin'),
     ]
+    
+    # === 10 CHAMPS ===
+    user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)  # 1
+    matricule = models.CharField(max_length=20, unique=True)  # 2
+    nom = models.CharField(max_length=100)  # 3
+    prenom = models.CharField(max_length=100)  # 4
+    sexe = models.CharField(max_length=1, choices=SEXE_CHOICES)  # 5
+    email = models.EmailField(unique=True)  # 6
+    telephone = models.CharField(max_length=20)  # 7
+    adresse = models.TextField()  # 8
+    poste = models.ForeignKey(Poste, on_delete=models.PROTECT, related_name='employes')  # 9
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, related_name='employes')  # 10
+    
+    # Métadonnées (non comptées dans les 10 champs)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.matricule} - {self.nom} {self.prenom}"
+    
+    @property
+    def full_name(self):
+        return f"{self.nom} {self.prenom}"
+
+
+# ✅ TABLE CONTRAT - 10 CHAMPS EXACTEMENT
+class Contrat(models.Model):
+    """Contrat de travail d'un employé - 10 champs"""
     
     SITUATION_CHOICES = [
         ('cdi', 'CDI'),
@@ -64,71 +91,47 @@ class Employe(models.Model):
         ('auto_entrepreneur', 'Auto-Entrepreneur'),
     ]
     
-    user = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
-    matricule = models.CharField(max_length=20, unique=True)
+    STATUT_CHOICES = [
+        ('actif', 'Actif'),
+        ('termine', 'Terminé'),
+        ('resilie', 'Résilié'),
+        ('suspendu', 'Suspendu'),
+    ]
     
-    # Identité
-    nom = models.CharField(max_length=100)
-    prenom = models.CharField(max_length=100)
-    sexe = models.CharField(max_length=1, choices=SEXE_CHOICES)
-    date_naissance = models.DateField()
-    lieu_naissance = models.CharField(max_length=100)
-    nationalite = models.CharField(max_length=50, default='Française')
+    # === 10 CHAMPS ===
+    employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='contrats')  # 1
+    situation = models.CharField(max_length=20, choices=SITUATION_CHOICES)  # 2
+    statut = models.CharField(max_length=20, choices=STATUT_CHOICES, default='actif')  # 3
+    date_embauche = models.DateField()  # 4
+    date_fin_contrat = models.DateField(null=True, blank=True)  # 5
+    salaire_base = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # 6
+    taux_horaire = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # 7
+    prime_panier = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # 8
+    indemnite_km = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # 9
+    prime_anciennete = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # 10
     
-    # Contact
-    email = models.EmailField(unique=True)
-    telephone = models.CharField(max_length=20)
-    adresse = models.TextField()
-    code_postal = models.CharField(max_length=10)
-    ville = models.CharField(max_length=100)
-    
-    # Professionnel
-    situation = models.CharField(max_length=20, choices=SITUATION_CHOICES)
-    poste = models.ForeignKey(Poste, on_delete=models.PROTECT, related_name='employes')
-    service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, related_name='employes')
-    
-    date_embauche = models.DateField()
-    date_fin_contrat = models.DateField(null=True, blank=True)
-    date_essai_fin = models.DateField(null=True, blank=True)
-    
-    # Salaire
-    salaire_base = models.DecimalField(max_digits=10, decimal_places=2)
-    taux_horaire = models.DecimalField(max_digits=10, decimal_places=2)
-    prime_panier = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    indemnite_km = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    prime_anciennete = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
-    # Statut
-    actif = models.BooleanField(default=True)
-    disponible = models.BooleanField(default=True)
-    
-    # Documents
-    numero_securite_sociale = models.CharField(max_length=15, blank=True)
-    num_permis = models.CharField(max_length=20, blank=True)
-    permis_valide = models.BooleanField(default=True)
-    
-    # Agence
-    agence = models.ForeignKey('users.Agence', on_delete=models.SET_NULL, null=True, related_name='employes')
-    
+    # Métadonnées (non comptées dans les 10 champs)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    def __str__(self):
-        return f"{self.matricule} - {self.nom} {self.prenom}"
+    class Meta:
+        ordering = ['-date_embauche']
     
-    @property
-    def age(self):
-        from datetime import date
-        today = date.today()
-        return today.year - self.date_naissance.year - ((today.month, today.day) < (self.date_naissance.month, self.date_naissance.day))
+    def __str__(self):
+        return f"{self.employe.nom} - {self.get_situation_display()} - {self.date_embauche}"
     
     @property
     def anciennete(self):
         from datetime import date
         today = date.today()
         return today.year - self.date_embauche.year
+    
+    @property
+    def est_actif(self):
+        return self.statut == 'actif'
 
 
+# ✅ CLASSES RH EXISTANTES (inchangées)
 class Competence(models.Model):
     """Compétence d'un employé"""
     
@@ -165,6 +168,7 @@ class Formation(models.Model):
     """Formation suivie par un employé"""
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='formations')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='formations')
     nom = models.CharField(max_length=200)
     organisme = models.CharField(max_length=200)
     date_debut = models.DateField()
@@ -190,6 +194,7 @@ class Pointage(models.Model):
     ]
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='pointages')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='pointages')
     projet = models.ForeignKey('chantiers.Projet', on_delete=models.SET_NULL, null=True, blank=True)
     tache = models.ForeignKey('chantiers.Tache', on_delete=models.SET_NULL, null=True, blank=True)
     
@@ -208,6 +213,7 @@ class HeureTravail(models.Model):
     """Récapitulatif des heures travaillées par jour"""
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='heures_travail')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='heures_travail')
     projet = models.ForeignKey('chantiers.Projet', on_delete=models.SET_NULL, null=True, blank=True)
     tache = models.ForeignKey('chantiers.Tache', on_delete=models.SET_NULL, null=True, blank=True)
     
@@ -246,6 +252,7 @@ class Absence(models.Model):
     ]
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='absences')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='absences')
     type_absence = models.CharField(max_length=20, choices=TYPE_CHOICES)
     date_debut = models.DateField()
     date_fin = models.DateField()
@@ -288,6 +295,7 @@ class NoteDeFrais(models.Model):
     ]
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='notes_frais')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='notes_frais')
     projet = models.ForeignKey('chantiers.Projet', on_delete=models.SET_NULL, null=True, blank=True)
     
     date = models.DateField()
@@ -314,6 +322,7 @@ class PlanningEmploye(models.Model):
     """Planning d'un employé sur un chantier"""
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='plannings')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='plannings')
     projet = models.ForeignKey('chantiers.Projet', on_delete=models.CASCADE, related_name='plannings_employes')
     tache = models.ForeignKey('chantiers.Tache', on_delete=models.SET_NULL, null=True, blank=True)
     
@@ -340,6 +349,7 @@ class DPAE(models.Model):
     """Déclaration Préalable à l'Embauche"""
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='dpaes')
+    contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='dpaes')
     numero = models.CharField(max_length=20, unique=True)
     date_envoi = models.DateTimeField(auto_now_add=True)
     date_embauche = models.DateField()
