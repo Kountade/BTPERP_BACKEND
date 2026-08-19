@@ -1,7 +1,6 @@
 # rh/serializers.py
 """
 Serializers pour l'application RH
-Gestion des employés, compétences, formations, pointages, absences, etc.
 """
 
 from rest_framework import serializers
@@ -36,24 +35,19 @@ class ServiceSerializer(serializers.ModelSerializer):
         read_only_fields = ('id',)
     
     def get_nb_employes(self, obj):
-        """Nombre d'employés dans le service"""
         return Employe.objects.filter(service=obj, actif=True).count()
     
     def get_sous_services(self, obj):
-        """Récupère les sous-services"""
         sous_services = Service.objects.filter(parent=obj)
         return ServiceSerializer(sous_services, many=True).data
 
 
 class ServiceCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'un service"""
-    
     class Meta:
         model = Service
         fields = ('id', 'nom', 'code', 'responsable', 'parent')
     
     def validate_code(self, value):
-        """Vérifie que le code est unique"""
         if Service.objects.filter(code=value).exists():
             raise serializers.ValidationError("Ce code de service existe déjà")
         return value
@@ -64,8 +58,6 @@ class ServiceCreateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class PosteSerializer(serializers.ModelSerializer):
-    """Serializer pour les postes/métiers"""
-    
     categorie_display = serializers.CharField(source='get_categorie_display', read_only=True)
     nb_employes = serializers.SerializerMethodField()
     competences_requises_detail = serializers.SerializerMethodField()
@@ -78,18 +70,14 @@ class PosteSerializer(serializers.ModelSerializer):
         read_only_fields = ('id',)
     
     def get_nb_employes(self, obj):
-        """Nombre d'employés occupant ce poste"""
         return Employe.objects.filter(poste=obj, actif=True).count()
     
     def get_competences_requises_detail(self, obj):
-        """Détail des compétences requises"""
         competences = obj.competences_requises.all()
         return CompetenceSerializer(competences, many=True).data
 
 
 class PosteCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'un poste"""
-    
     class Meta:
         model = Poste
         fields = ('id', 'nom', 'description', 'code', 'categorie', 'niveau', 
@@ -106,8 +94,6 @@ class PosteCreateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class CompetenceSerializer(serializers.ModelSerializer):
-    """Serializer pour les compétences"""
-    
     class Meta:
         model = Competence
         fields = ('id', 'nom', 'description', 'categorie')
@@ -115,12 +101,13 @@ class CompetenceSerializer(serializers.ModelSerializer):
 
 
 # ============================================================
-# EMPLOYE SERIALIZER
+# EMPLOYE SERIALIZER - CORRIGÉ
 # ============================================================
 
 class EmployeSerializer(serializers.ModelSerializer):
     """Serializer de base pour les employés"""
     
+    # ✅ CORRECTION : Utiliser une méthode personnalisée au lieu de get_full_name
     full_name = serializers.SerializerMethodField()
     age = serializers.IntegerField(read_only=True)
     anciennete = serializers.IntegerField(read_only=True)
@@ -142,13 +129,15 @@ class EmployeSerializer(serializers.ModelSerializer):
                   'permis_valide', 'agence', 'agence_nom', 'user')
         read_only_fields = ('id', 'created_at', 'updated_at')
     
+    # ✅ CORRECTION : Méthode personnalisée pour le nom complet
     def get_full_name(self, obj):
-        return obj.get_full_name()
+        return f"{obj.prenom or ''} {obj.nom or ''}".strip() or obj.email or 'Employé'
 
 
 class EmployeDetailSerializer(serializers.ModelSerializer):
     """Serializer détaillé pour les employés"""
     
+    # ✅ CORRECTION : Utiliser une méthode personnalisée
     full_name = serializers.SerializerMethodField()
     age = serializers.IntegerField(read_only=True)
     anciennete = serializers.IntegerField(read_only=True)
@@ -182,26 +171,23 @@ class EmployeDetailSerializer(serializers.ModelSerializer):
                   'absences_en_cours', 'heures_mois')
         read_only_fields = ('id', 'created_at', 'updated_at')
     
+    # ✅ CORRECTION : Méthode personnalisée
     def get_full_name(self, obj):
-        return obj.get_full_name()
+        return f"{obj.prenom or ''} {obj.nom or ''}".strip() or obj.email or 'Employé'
     
     def get_competences(self, obj):
-        """Récupère les compétences de l'employé"""
         employe_comp = obj.competences.filter(employe=obj)
         return EmployeCompetenceSerializer(employe_comp, many=True).data
     
     def get_formations(self, obj):
-        """Récupère les formations de l'employé"""
         formations = obj.formations.all()
         return FormationSerializer(formations, many=True).data
     
     def get_pointages_recents(self, obj):
-        """Récupère les 10 derniers pointages"""
         pointages = obj.pointages.order_by('-date', '-heure')[:10]
         return PointageSerializer(pointages, many=True).data
     
     def get_absences_en_cours(self, obj):
-        """Récupère les absences en cours ou à venir"""
         today = date.today()
         absences = obj.absences.filter(
             Q(statut__in=['demandee', 'approuvee']),
@@ -210,7 +196,6 @@ class EmployeDetailSerializer(serializers.ModelSerializer):
         return AbsenceSerializer(absences, many=True).data
     
     def get_heures_mois(self, obj):
-        """Récupère les heures travaillées du mois en cours"""
         today = date.today()
         debut_mois = today.replace(day=1)
         heures = obj.heures_travail.filter(
@@ -231,8 +216,6 @@ class EmployeDetailSerializer(serializers.ModelSerializer):
 
 
 class EmployeCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'un employé"""
-    
     user_id = serializers.IntegerField(required=False, allow_null=True)
     
     class Meta:
@@ -272,8 +255,6 @@ class EmployeCreateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class EmployeCompetenceSerializer(serializers.ModelSerializer):
-    """Serializer pour les compétences des employés"""
-    
     competence_nom = serializers.CharField(source='competence.nom', read_only=True)
     competence_categorie = serializers.CharField(source='competence.categorie', read_only=True)
     niveau_display = serializers.CharField(source='get_niveau_display', read_only=True)
@@ -291,8 +272,6 @@ class EmployeCompetenceSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class FormationSerializer(serializers.ModelSerializer):
-    """Serializer pour les formations"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     
     class Meta:
@@ -308,8 +287,6 @@ class FormationSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class PointageSerializer(serializers.ModelSerializer):
-    """Serializer pour les pointages"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     type_display = serializers.CharField(source='get_type_pointage_display', read_only=True)
     projet_nom = serializers.CharField(source='projet.nom', read_only=True, default=None)
@@ -324,8 +301,6 @@ class PointageSerializer(serializers.ModelSerializer):
 
 
 class PointageCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'un pointage"""
-    
     class Meta:
         model = Pointage
         fields = ('id', 'employe', 'projet', 'tache', 'type_pointage',
@@ -338,8 +313,6 @@ class PointageCreateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class HeureTravailSerializer(serializers.ModelSerializer):
-    """Serializer pour les heures travaillées"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     projet_nom = serializers.CharField(source='projet.nom', read_only=True, default=None)
     total_heures = serializers.SerializerMethodField()
@@ -358,8 +331,6 @@ class HeureTravailSerializer(serializers.ModelSerializer):
 
 
 class HeureTravailBulkCreateSerializer(serializers.Serializer):
-    """Serializer pour la création en masse des heures travaillées"""
-    
     employe_id = serializers.IntegerField()
     date = serializers.DateField()
     heures_normales = serializers.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -375,8 +346,6 @@ class HeureTravailBulkCreateSerializer(serializers.Serializer):
 # ============================================================
 
 class AbsenceSerializer(serializers.ModelSerializer):
-    """Serializer pour les absences"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     type_display = serializers.CharField(source='get_type_absence_display', read_only=True)
     statut_display = serializers.CharField(source='get_statut_display', read_only=True)
@@ -392,8 +361,6 @@ class AbsenceSerializer(serializers.ModelSerializer):
 
 
 class AbsenceCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'une absence"""
-    
     class Meta:
         model = Absence
         fields = ('id', 'employe', 'type_absence', 'date_debut', 'date_fin',
@@ -404,7 +371,6 @@ class AbsenceCreateSerializer(serializers.ModelSerializer):
         if data['date_debut'] > data['date_fin']:
             raise serializers.ValidationError("La date de début doit être antérieure à la date de fin")
         
-        # Vérifier les chevauchements d'absences
         existing = Absence.objects.filter(
             employe=data['employe'],
             statut__in=['demandee', 'approuvee'],
@@ -423,8 +389,6 @@ class AbsenceCreateSerializer(serializers.ModelSerializer):
 
 
 class AbsenceApproveSerializer(serializers.Serializer):
-    """Serializer pour approuver/refuser une absence"""
-    
     approuve = serializers.BooleanField()
     commentaire = serializers.CharField(required=False, allow_blank=True)
 
@@ -434,8 +398,6 @@ class AbsenceApproveSerializer(serializers.Serializer):
 # ============================================================
 
 class NoteDeFraisSerializer(serializers.ModelSerializer):
-    """Serializer pour les notes de frais"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     type_display = serializers.CharField(source='get_type_frais_display', read_only=True)
     statut_display = serializers.CharField(source='get_statut_display', read_only=True)
@@ -454,8 +416,6 @@ class NoteDeFraisSerializer(serializers.ModelSerializer):
 
 
 class NoteDeFraisCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'une note de frais"""
-    
     class Meta:
         model = NoteDeFrais
         fields = ('id', 'employe', 'projet', 'date', 'type_frais',
@@ -464,8 +424,6 @@ class NoteDeFraisCreateSerializer(serializers.ModelSerializer):
 
 
 class NoteDeFraisApproveSerializer(serializers.Serializer):
-    """Serializer pour approuver/refuser une note de frais"""
-    
     approuve = serializers.BooleanField()
     commentaire = serializers.CharField(required=False, allow_blank=True)
 
@@ -475,8 +433,6 @@ class NoteDeFraisApproveSerializer(serializers.Serializer):
 # ============================================================
 
 class PlanningEmployeSerializer(serializers.ModelSerializer):
-    """Serializer pour le planning des employés"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     projet_nom = serializers.CharField(source='projet.nom', read_only=True, default=None)
     tache_nom = serializers.CharField(source='tache.nom', read_only=True, default=None)
@@ -494,8 +450,6 @@ class PlanningEmployeSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class DPAESerializer(serializers.ModelSerializer):
-    """Serializer pour les DPAE"""
-    
     employe_nom = serializers.CharField(source='employe.get_full_name', read_only=True)
     
     class Meta:
@@ -507,8 +461,6 @@ class DPAESerializer(serializers.ModelSerializer):
 
 
 class DPAECreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création d'une DPAE"""
-    
     class Meta:
         model = DPAE
         fields = ('id', 'employe', 'date_embauche', 'date_fin_contrat',
@@ -528,8 +480,6 @@ class DPAECreateSerializer(serializers.ModelSerializer):
 # ============================================================
 
 class RHStatsSerializer(serializers.Serializer):
-    """Serializer pour les statistiques RH"""
-    
     total_employes = serializers.IntegerField()
     actifs = serializers.IntegerField()
     inactifs = serializers.IntegerField()
