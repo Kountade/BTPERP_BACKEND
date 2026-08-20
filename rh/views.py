@@ -1,15 +1,9 @@
-# rh/views.py
-"""
-Vues pour l'application RH
-API REST pour la gestion des ressources humaines
-Version avec Contrat
-"""
+    # rh/views.py - Ajouter FormationViewSet
 
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import Count, Sum, Q
-from django.db.models.functions import TruncMonth
 from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 
@@ -18,9 +12,24 @@ from .models import (
     Formation, Pointage, HeureTravail, Absence, NoteDeFrais,
     PlanningEmploye, DPAE
 )
-from .serializers import *
+from .serializers import (
+    ServiceSerializer, ServiceCreateSerializer,
+    PosteSerializer, PosteCreateSerializer,
+    CompetenceSerializer,
+    EmployeSerializer, EmployeDetailSerializer, EmployeCreateSerializer,
+    ContratSerializer, ContratCreateSerializer,
+    EmployeCompetenceSerializer,
+    FormationSerializer,
+    PointageSerializer, PointageCreateSerializer,
+    HeureTravailSerializer,
+    AbsenceSerializer, AbsenceCreateSerializer,
+    NoteDeFraisSerializer, NoteDeFraisCreateSerializer,
+    PlanningEmployeSerializer,
+    DPAESerializer, DPAECreateSerializer,
+)
 
 User = get_user_model()
+
 
 
 # ============================================================
@@ -671,3 +680,58 @@ class PlanningEmployeViewSet(viewsets.ModelViewSet):
         planning.valide = True
         planning.save()
         return Response(PlanningEmployeSerializer(planning).data)
+
+
+
+
+# ============================================================
+# FORMATION VIEWSET - À AJOUTER
+# ============================================================
+
+class FormationViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les formations"""
+    
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = Formation.objects.all()
+    serializer_class = FormationSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filtrer par employé
+        employe_id = self.request.query_params.get('employe')
+        if employe_id:
+            queryset = queryset.filter(employe_id=employe_id)
+        
+        # Filtrer par validation
+        valide = self.request.query_params.get('valide')
+        if valide is not None:
+            queryset = queryset.filter(valide=valide.lower() == 'true')
+        
+        # Recherche
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(nom__icontains=search) |
+                Q(organisme__icontains=search) |
+                Q(employe__nom__icontains=search) |
+                Q(employe__prenom__icontains=search)
+            )
+        
+        return queryset.order_by('-date_debut')
+    
+    @action(detail=True, methods=['post'])
+    def valider(self, request, pk=None):
+        """Valide une formation"""
+        formation = self.get_object()
+        formation.valide = True
+        formation.save()
+        return Response(FormationSerializer(formation).data)
+    
+    @action(detail=True, methods=['post'])
+    def invalider(self, request, pk=None):
+        """Invalide une formation"""
+        formation = self.get_object()
+        formation.valide = False
+        formation.save()
+        return Response(FormationSerializer(formation).data)

@@ -556,3 +556,37 @@ class RHStatsSerializer(serializers.Serializer):
     par_poste = serializers.DictField()
     absences_mois = serializers.IntegerField()
     formations_mois = serializers.IntegerField()
+
+
+
+
+
+# rh/serializers.py - FormationSerializer sans created_at/updated_at
+
+class FormationSerializer(serializers.ModelSerializer):
+    employe_nom = serializers.SerializerMethodField()
+    contrat_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Formation
+        fields = ('id', 'employe', 'employe_nom', 'contrat', 'contrat_display',
+                  'nom', 'organisme', 'date_debut', 'date_fin', 'duree_heures',
+                  'cout', 'certificat', 'valide')
+        read_only_fields = ('id',)
+    
+    def get_employe_nom(self, obj):
+        return obj.employe.full_name if obj.employe else None
+    
+    def get_contrat_display(self, obj):
+        if obj.contrat:
+            return f"{obj.contrat.get_situation_display()} - {obj.contrat.date_embauche}"
+        return None
+
+
+class FormationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Formation
+        fields = ('id', 'employe', 'contrat', 'nom', 'organisme',
+                  'date_debut', 'date_fin', 'duree_heures', 'cout',
+                  'certificat', 'valide')
+        read_only_fields = ('id',)
