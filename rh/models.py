@@ -345,12 +345,25 @@ class PlanningEmploye(models.Model):
         ordering = ['date', 'heure_debut']
 
 
+# rh/models.py - Version corrigée avec la méthode generate_unique_number
+
+import random
+from django.db import models
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+# ... (autres modèles inchangés: Service, Poste, Employe, Contrat, Competence, etc.)
+
+
+# ✅ TABLE DPAE CORRIGÉE AVEC MÉTHODE
 class DPAE(models.Model):
     """Déclaration Préalable à l'Embauche"""
     
     employe = models.ForeignKey(Employe, on_delete=models.CASCADE, related_name='dpaes')
     contrat = models.ForeignKey(Contrat, on_delete=models.SET_NULL, null=True, blank=True, related_name='dpaes')
-    numero = models.CharField(max_length=20, unique=True)
+    numero = models.CharField(max_length=20, unique=True, blank=True, null=True)  # ✅ AUTO-GÉNÉRÉ
     date_envoi = models.DateTimeField(auto_now_add=True)
     date_embauche = models.DateField()
     date_fin_contrat = models.DateField(null=True, blank=True)
@@ -358,5 +371,42 @@ class DPAE(models.Model):
     transmis = models.BooleanField(default=False)
     numero_ursaff = models.CharField(max_length=20, blank=True)
     
+    def save(self, *args, **kwargs):
+        # ✅ Générer un numéro automatiquement si vide
+        if not self.numero:
+            self.numero = self.generate_unique_number()
+        super().save(*args, **kwargs)
+    
+    def generate_unique_number(self):
+        """Génère un numéro unique pour la DPAE"""
+        
+        # Récupérer le dernier numéro
+        last = DPAE.objects.all().order_by('-id').first()
+        
+        if last and last.numero:
+            try:
+                num = int(last.numero) + 1
+                new_num = str(num).zfill(6)
+            except (ValueError, TypeError):
+                new_num = str(random.randint(100000, 999999))
+        else:
+            new_num = '000001'
+        
+        # ✅ Vérifier l'unicité
+        counter = 0
+        while DPAE.objects.filter(numero=new_num).exists() and counter < 100:
+            try:
+                num = int(new_num) + 1
+                new_num = str(num).zfill(6)
+            except (ValueError, TypeError):
+                new_num = str(random.randint(100000, 999999))
+            counter += 1
+        
+        # Si toujours pas unique, ajouter un timestamp
+        if DPAE.objects.filter(numero=new_num).exists():
+            new_num = f"DPAE_{int(random.random() * 1000000)}"
+        
+        return new_num
+    
     def __str__(self):
-        return f"DPAE {self.numero} - {self.employe.nom}"
+        return f"DPAE {self.numero or 'Sans numéro'} - {self.employe.nom}"

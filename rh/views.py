@@ -592,6 +592,7 @@ class NoteDeFraisViewSet(viewsets.ModelViewSet):
 # ============================================================
 # DPAE VIEWSET
 # ============================================================
+# rh/views.py - DPAEViewSet corrigé
 
 class DPAEViewSet(viewsets.ModelViewSet):
     """ViewSet pour les DPAE"""
@@ -619,24 +620,19 @@ class DPAEViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def transmettre(self, request, pk=None):
+        """Marque la DPAE comme transmise"""
         dpae = self.get_object()
         dpae.transmis = True
         dpae.save()
         return Response(DPAESerializer(dpae).data)
     
-    @action(detail=True, methods=['post'])
-    def generer_numero(self, request, pk=None):
-        last_dpae = DPAE.objects.all().order_by('-id').first()
-        if last_dpae and last_dpae.numero:
-            try:
-                num = int(last_dpae.numero) + 1
-                new_num = str(num).zfill(6)
-            except ValueError:
-                new_num = '000001'
-        else:
-            new_num = '000001'
+    @action(detail=False, methods=['post'])
+    def generer_numero(self, request):
+        """Génère un numéro de DPAE unique"""
+        # ✅ Utiliser la méthode du modèle pour générer
+        dpae = DPAE()
+        new_num = dpae.generate_unique_number()
         return Response({"numero": new_num})
-
 
 # ============================================================
 # PLANNING EMPLOYE VIEWSET

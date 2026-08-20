@@ -522,12 +522,14 @@ class DPAESerializer(serializers.ModelSerializer):
         return None
 
 
+# rh/serializers.py - DPAE Serializer corrigé
+
 class DPAECreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = DPAE
         fields = ('id', 'employe', 'contrat', 'date_embauche', 'date_fin_contrat',
                   'motif_embauche')
-        read_only_fields = ('id',)
+        read_only_fields = ('id', 'numero')
     
     def validate(self, data):
         if data.get('date_fin_contrat') and data['date_fin_contrat'] < data['date_embauche']:
@@ -535,6 +537,10 @@ class DPAECreateSerializer(serializers.ModelSerializer):
                 "La date de fin de contrat doit être postérieure à la date d'embauche"
             )
         return data
+    
+    def create(self, validated_data):
+        # ✅ Le numéro sera généré automatiquement par le modèle
+        return super().create(validated_data)
 
 
 # ============================================================
