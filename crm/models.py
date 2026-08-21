@@ -1,7 +1,9 @@
-from django.db import models
-
-# Create your models here.
 # crm/models.py
+"""
+Modèles pour l'application CRM - Multi-agences
+Avec liaison vers users.Agence - nullable pour migration
+"""
+
 from django.db import models
 from django.contrib.auth import get_user_model
 from decimal import Decimal
@@ -10,7 +12,7 @@ User = get_user_model()
 
 
 class Client(models.Model):
-    """Client ou maître d'ouvrage"""
+    """Client ou maître d'ouvrage - Multi-agences"""
     
     TYPE_CHOICES = [
         ('particulier', 'Particulier'),
@@ -19,6 +21,11 @@ class Client(models.Model):
         ('promoteur', 'Promoteur'),
         ('bailleur', 'Bailleur social'),
     ]
+    
+    # ✅ LIEN VERS L'AGENCE - nullable pour migration
+    agence = models.ForeignKey('users.Agence', on_delete=models.CASCADE, 
+                               related_name='clients', verbose_name="Agence",
+                               null=True, blank=True)
     
     nom = models.CharField(max_length=200)
     type_client = models.CharField(max_length=20, choices=TYPE_CHOICES)
@@ -43,16 +50,21 @@ class Client(models.Model):
     actif = models.BooleanField(default=True)
     note = models.DecimalField(max_digits=3, decimal_places=1, default=0)
     
+    # Métadonnées
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     
+    class Meta:
+        unique_together = ['agence', 'email']  # Un client par email par agence (si agence non null)
+        ordering = ['nom']
+    
     def __str__(self):
-        return self.nom
+        return f"{self.nom} ({self.agence.nom if self.agence else 'Sans agence'})"
 
 
 class Lead(models.Model):
-    """Prospect ou opportunité commerciale"""
+    """Prospect ou opportunité commerciale - Multi-agences"""
     
     STATUT_CHOICES = [
         ('nouveau', 'Nouveau'),
@@ -71,6 +83,11 @@ class Lead(models.Model):
         ('appel', 'Appel d\'offres'),
         ('autre', 'Autre'),
     ]
+    
+    # ✅ LIEN VERS L'AGENCE - nullable pour migration
+    agence = models.ForeignKey('users.Agence', on_delete=models.CASCADE,
+                               related_name='leads', verbose_name="Agence",
+                               null=True, blank=True)
     
     nom = models.CharField(max_length=200)
     email = models.EmailField()
@@ -98,12 +115,16 @@ class Lead(models.Model):
     date_perte = models.DateField(null=True, blank=True)
     motif_perte = models.TextField(blank=True)
     
+    class Meta:
+        unique_together = ['agence', 'email']  # Un lead par email par agence
+        ordering = ['-created_at']
+    
     def __str__(self):
-        return f"{self.nom} - {self.get_statut_display()}"
+        return f"{self.nom} - {self.get_statut_display()} ({self.agence.nom if self.agence else 'Sans agence'})"
 
 
 class Interaction(models.Model):
-    """Historique des interactions avec un lead/client"""
+    """Historique des interactions avec un lead/client - Multi-agences"""
     
     TYPE_CHOICES = [
         ('appel', 'Appel téléphonique'),
@@ -113,6 +134,11 @@ class Interaction(models.Model):
         ('reunion', 'Réunion'),
         ('autre', 'Autre'),
     ]
+    
+    # ✅ LIEN VERS L'AGENCE - nullable pour migration
+    agence = models.ForeignKey('users.Agence', on_delete=models.CASCADE,
+                               related_name='interactions', verbose_name="Agence",
+                               null=True, blank=True)
     
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name='interactions', null=True, blank=True)
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name='interactions')
@@ -129,11 +155,11 @@ class Interaction(models.Model):
         ordering = ['-date']
     
     def __str__(self):
-        return f"{self.get_type_interaction_display()} - {self.lead or self.client}"
+        return f"{self.get_type_interaction_display()} - {self.lead or self.client} ({self.agence.nom if self.agence else 'Sans agence'})"
 
 
 class AppelOffre(models.Model):
-    """Appel d'offres reçu"""
+    """Appel d'offres reçu - Multi-agences"""
     
     STATUT_CHOICES = [
         ('recu', 'Reçu'),
@@ -142,6 +168,11 @@ class AppelOffre(models.Model):
         ('gagne', 'Gagné'),
         ('perdu', 'Perdu'),
     ]
+    
+    # ✅ LIEN VERS L'AGENCE - nullable pour migration
+    agence = models.ForeignKey('users.Agence', on_delete=models.CASCADE,
+                               related_name='appels_offres', verbose_name="Agence",
+                               null=True, blank=True)
     
     reference = models.CharField(max_length=50)
     client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='appels_offres')
@@ -163,5 +194,9 @@ class AppelOffre(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    class Meta:
+        unique_together = ['agence', 'reference']  # Une référence unique par agence
+        ordering = ['-date_limite']
+    
     def __str__(self):
-        return f"AO {self.reference} - {self.client.nom}"
+        return f"AO {self.reference} - {self.client.nom} ({self.agence.nom if self.agence else 'Sans agence'})"
